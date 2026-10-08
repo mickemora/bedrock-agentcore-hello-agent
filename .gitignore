@@ -1,0 +1,41 @@
+# Original local Git history backup
+.git-agentcore-backup/
+
+# AgentCore local environment and deployment state
+agentcore/.env.local
+agentcore/.cli/
+agentcore/.cache/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Node / CDK
+node_modules/
+agentcore/cdk/cdk.out/
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# AWS account-specific deployment target
+agentcore/aws-targets.json
+*.backup
