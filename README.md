@@ -6,6 +6,12 @@ The objective of this project is not to build a sophisticated application. It is
 
 **agent logic → model integration → tool selection → tool execution → local testing → AWS deployment → remote invocation**
 
+## Exercise at a Glance
+
+![Amazon Bedrock AgentCore Hello Agent infographic](docs/bedrock-agentcore-hello-agent-infographic.svg)
+
+The infographic summarizes the core execution path demonstrated in this lab: a natural-language request is interpreted by Claude Sonnet through Amazon Bedrock, orchestrated by a Strands agent, executed through a controlled Python tool, and hosted in Amazon Bedrock AgentCore Runtime.
+
 ---
 
 ## What This Demo Does
