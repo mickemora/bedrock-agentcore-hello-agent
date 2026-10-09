@@ -21,6 +21,7 @@ function toStackName(projectName: string, targetName: string): string {
 }
 
 async function main() {
+  
   // Config root is parent of cdk/ directory. The CLI sets process.cwd() to agentcore/cdk/.
   const configRoot = path.resolve(process.cwd(), '..');
   const configIO = new ConfigIO({ baseDir: configRoot });
@@ -206,6 +207,7 @@ async function main() {
   }
 
   app.synth();
+
 }
 
 main().catch((error: unknown) => {

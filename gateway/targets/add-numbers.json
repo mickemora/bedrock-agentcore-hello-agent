@@ -1,0 +1,38 @@
+{
+  "mcp": {
+    "lambda": {
+      "lambdaArn": "arn:aws:lambda:us-east-1:946168011114:function:HelloAgentV2-AddNumbers",
+      "toolSchema": {
+        "inlinePayload": [
+          {
+            "name": "add_numbers",
+            "description": "Add two integers and return their sum.",
+            "inputSchema": {
+              "type": "object",
+              "properties": {
+                "a": {
+                  "type": "integer",
+                  "description": "First integer"
+                },
+                "b": {
+                  "type": "integer",
+                  "description": "Second integer"
+                }
+              },
+              "required": ["a", "b"]
+            },
+            "outputSchema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "type": "integer"
+                }
+              },
+              "required": ["result"]
+            }
+          }
+        ]
+      }
+    }
+  }
+}
