@@ -125,6 +125,29 @@ export class AgentCoreStack extends Stack {
     }
     this.application = new AgentCoreApplication(this, 'Application', appProps as any);
 
+    // Configure the external AgentCore Gateway endpoint for HelloAgent V2.
+    for (const env of this.application.environments.values()) {
+      if (env.agent.name === 'HelloAgent') {
+        env.runtime.addEnvironmentVariable(
+          'AGENTCORE_GATEWAY_URL',
+          'https://helloagentv2-gateway-wxwoqd7hmx.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp'
+        );
+      }
+
+      // Allow HelloAgent V2 to invoke its calculator Gateway.
+      env.runtime.addToPolicy(
+        new iam.PolicyStatement({
+          effect: iam.Effect.ALLOW,
+          actions: ['bedrock-agentcore:InvokeGateway'],
+          resources: [
+            'arn:aws:bedrock-agentcore:us-east-1:946168011114:gateway/helloagentv2-gateway-wxwoqd7hmx',
+          ],
+        })
+      );
+    }
+
+
+
     // Create AgentCoreMcp if there are gateways configured
     if (mcpSpec?.agentCoreGateways && mcpSpec.agentCoreGateways.length > 0) {
       new AgentCoreMcp(this, 'Mcp', {

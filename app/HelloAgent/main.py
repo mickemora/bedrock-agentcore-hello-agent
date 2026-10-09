@@ -1,54 +1,60 @@
+import atexit
+
 from collections import OrderedDict
+from contextlib import ExitStack
+from threading import Lock
 
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
-from strands import Agent, tool
+from strands import Agent
 from strands.agent.conversation_manager.null_conversation_manager import (
     NullConversationManager,
 )
 
+from gateway.client import create_gateway_client
 from model.load import load_model
 
 
-# AgentCore runtime application
 app = BedrockAgentCoreApp()
 log = app.logger
-
 
 SYSTEM_PROMPT = """
 You are a helpful assistant.
 Use available tools when appropriate.
+Use the calculator tool when asked to add numbers.
 """
 
+# Gateway client lifecycle
+_gateway_client = None
+_gateway_lock = Lock()
+_gateway_stack = ExitStack()
 
-# ---------------------------------------------------------------------------
-# Tools
-# ---------------------------------------------------------------------------
-
-@tool
-def add_numbers(a: int, b: int) -> int:
-    """Return the sum of two numbers."""
-    return a + b
+atexit.register(_gateway_stack.close)
 
 
-TOOLS = [add_numbers]
+def get_gateway_tools():
+    """Connect to Gateway once and discover its MCP tools."""
+    global _gateway_client
 
+    with _gateway_lock:
+        if _gateway_client is None:
+            client = create_gateway_client()
+            _gateway_stack.enter_context(client)
+            _gateway_client = client
+            log.info("Connected to AgentCore Gateway")
 
-# ---------------------------------------------------------------------------
-# Agent
-# ---------------------------------------------------------------------------
+        return list(_gateway_client.list_tools_sync())
+
 
 def create_agent() -> Agent:
-    """Create a Strands agent backed by Amazon Bedrock."""
+    """Create a Strands agent using Gateway-backed tools."""
     return Agent(
         model=load_model(),
         system_prompt=SYSTEM_PROMPT,
-        tools=TOOLS,
+        tools=get_gateway_tools(),
         conversation_manager=NullConversationManager(),
     )
 
 
-# Keep a small in-process cache so a runtime session can reuse its agent.
-# This is not durable AgentCore Memory and resets when the runtime restarts.
 _agents = OrderedDict()
 _MAX_SESSIONS = 128
 
@@ -66,10 +72,6 @@ def get_agent(session_id: str) -> Agent:
     _agents[session_id] = agent
     return agent
 
-
-# ---------------------------------------------------------------------------
-# AgentCore entrypoint
-# ---------------------------------------------------------------------------
 
 @app.entrypoint
 async def invoke(payload, context):
