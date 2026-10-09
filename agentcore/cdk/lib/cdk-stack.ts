@@ -130,7 +130,7 @@ export class AgentCoreStack extends Stack {
       if (env.agent.name === 'HelloAgent') {
         env.runtime.addEnvironmentVariable(
           'AGENTCORE_GATEWAY_URL',
-          'https://helloagentv2-gateway-wxwoqd7hmx.gateway.bedrock-agentcore.us-east-1.amazonaws.com/mcp'
+          'REMOVED'
         );
       }
 
@@ -140,7 +140,7 @@ export class AgentCoreStack extends Stack {
           effect: iam.Effect.ALLOW,
           actions: ['bedrock-agentcore:InvokeGateway'],
           resources: [
-            'arn:aws:bedrock-agentcore:us-east-1:946168011114:gateway/helloagentv2-gateway-wxwoqd7hmx',
+            'arn:aws:bedrock-agentcore:us-east-1:REMOVED:gateway/helloagentv2-gateway-wxwoqd7hmx',
           ],
         })
       );
