@@ -1,6 +1,6 @@
 # Amazon Bedrock AgentCore — Hello Agent
 
-A deliberately minimal implementation of a **tool-using AI agent deployed on Amazon Bedrock AgentCore Runtime**.
+A deliberately minimal, two-stage implementation of a **tool-using AI agent deployed on Amazon Bedrock AgentCore Runtime**. V1 demonstrates a local Python tool; V2 demonstrates external tool execution through **AgentCore Gateway, MCP, and AWS Lambda**.
 
 The objective of this project is not to build a sophisticated application. It is to demonstrate, in the smallest practical example, the complete lifecycle of an AI agent:
 
@@ -10,7 +10,18 @@ The objective of this project is not to build a sophisticated application. It is
 
 ![Amazon Bedrock AgentCore Hello Agent infographic](docs/bedrock-agentcore-hello-agent-infographic.svg)
 
-The infographic summarizes the core execution path demonstrated in this lab: a natural-language request is interpreted by Claude Sonnet through Amazon Bedrock, orchestrated by a Strands agent, executed through a controlled Python tool, and hosted in Amazon Bedrock AgentCore Runtime.
+The infographic illustrates the original V1 execution path: a natural-language request is interpreted by Claude Sonnet through Amazon Bedrock, orchestrated by a Strands agent, executed through a controlled Python tool, and hosted in Amazon Bedrock AgentCore Runtime.
+
+---
+
+## Versions at a Glance
+
+| Version | Tool execution | Primary lesson |
+|---|---|---|
+| **V1 — In-process Python tool** | `@tool add_numbers` inside the agent | Model-directed tool use and AgentCore Runtime deployment |
+| **V2 — Gateway-mediated tool** (currently deployed) | Strands MCP client → AgentCore Gateway → AWS Lambda | Separation of agent orchestration from externally managed business capabilities |
+
+Both versions use the same core agent, reasoning model, and managed Runtime. V2 updates the existing Runtime rather than creating a second one.
 
 ---
 
@@ -18,7 +29,7 @@ The infographic summarizes the core execution path demonstrated in this lab: a n
 
 The agent accepts natural-language requests and uses **Claude Sonnet 4.5 through Amazon Bedrock** as its reasoning model.
 
-It also has access to a custom Python tool:
+**In V1**, it also has access to a custom in-process Python tool:
 
 ```python
 @tool
@@ -49,11 +60,13 @@ Observe Result
 Respond
 ```
 
-The calculator is intentionally trivial. The point of the demo is the **agent architecture and deployment lifecycle**, not the arithmetic.
+**In V2**, the calculator executes in AWS Lambda and is accessed through AgentCore Gateway using MCP. The calculator remains intentionally trivial: the point is the **agent architecture, access controls, and deployment lifecycle**, not the arithmetic.
 
 ---
 
 ## Architecture
+
+### V1 — In-process tool (original implementation)
 
 ```text
                        User / CLI
@@ -82,6 +95,35 @@ The calculator is intentionally trivial. The point of the demo is the **agent ar
                        Claude Sonnet 4.5
 ```
 
+### V2 — Gateway-mediated tool (current deployment)
+
+```text
+User / CLI
+    |
+    v
+Amazon Bedrock AgentCore Runtime
+    |
+    v
+Strands Agent <----> Amazon Bedrock / Claude Sonnet 4.5
+    |
+    v
+MCPClient + SigV4 authentication
+    |
+    v
+AgentCore Gateway (MCP endpoint)
+    |
+    v
+Lambda target: add_numbers(a, b)
+    |
+    v
+AWS Lambda: HelloAgentV2-AddNumbers
+    |
+    v
+Result -> Strands Agent -> User
+```
+
+The Gateway provides the external tool interface; the Lambda function owns the deterministic business logic. The Runtime execution role receives narrowly scoped `bedrock-agentcore:InvokeGateway` permission, while Gateway-to-Lambda invocation is authorized separately. SigV4 signs Gateway requests with AWS credentials; no embedded access keys are required.
+
 ### Component Responsibilities
 
 **Amazon Bedrock AgentCore Runtime**  
@@ -99,8 +141,17 @@ Provides managed access to the foundation model using AWS identity and permissio
 **Claude Sonnet 4.5**  
 Acts as the reasoning model that interprets requests and determines when an available tool should be used.
 
-**Python Tool**  
-`add_numbers` demonstrates how deterministic application capabilities can be exposed to the model.
+**Python Tool (V1)**  
+`add_numbers` demonstrates in-process deterministic tool execution.
+
+**AgentCore Gateway and MCP (V2)**  
+Expose and discover the external `add_numbers` capability using an MCP client and Gateway target.
+
+**AWS Lambda (V2)**  
+Runs the calculator independently of the agent process.
+
+**AWS IAM and SigV4 (V2)**  
+Authenticate Gateway requests and authorize tool invocation using scoped permissions.
 
 ---
 
@@ -113,11 +164,21 @@ Acts as the reasoning model that interprets requests and determines when an avai
 ├── app/
 │   └── HelloAgent/
 │       ├── main.py
+│       ├── gateway/
+│       │   ├── auth.py
+│       │   └── client.py
 │       ├── model/
 │       │   └── load.py
 │       ├── pyproject.toml
 │       └── uv.lock
 │
+├── gateway/
+│   ├── iam/
+│   ├── targets/add-numbers.json
+│   └── test_gateway.py
+├── lambda/add_numbers/
+│   ├── handler.py
+│   └── iam/
 └── agentcore/
     ├── agentcore.json
     ├── aws-targets.example.json
@@ -130,7 +191,9 @@ Local deployment state, environment files, logs, caches, and AWS account-specifi
 
 ## Core Agent
 
-The tool is intentionally simple:
+### V1 — Local tool
+
+The original tool is intentionally simple:
 
 ```python
 @tool
@@ -149,6 +212,12 @@ Agent(
     conversation_manager=NullConversationManager(),
 )
 ```
+
+### V2 — Discovered Gateway tools
+
+The current agent uses `create_gateway_client()` from `app/HelloAgent/gateway/client.py`, opens its MCP connection, discovers tools through `list_tools_sync()`, and passes them to the Strands `Agent`. The Gateway URL is supplied through the required `AGENTCORE_GATEWAY_URL` environment variable. `app/HelloAgent/gateway/auth.py` implements SigV4 request signing.
+
+The application reuses its Gateway client within the running process and maintains a bounded in-process session-to-agent cache. This is a learning implementation, not a fully hardened connection-management design.
 
 The model is loaded from Amazon Bedrock:
 
@@ -179,6 +248,8 @@ The small in-process agent cache is **not durable AgentCore Memory**. It is inte
 ---
 
 ## Tool-Use Flow
+
+The following describes the original V1 flow. In V2, the `add_numbers` execution step is replaced with **MCP client → AgentCore Gateway → Lambda**, and the result is returned to the agent for its final response.
 
 A request such as:
 
@@ -274,7 +345,7 @@ The expected result is:
 The sum of 173 + 289 is 462.
 ```
 
-The inspector can also be used to verify that `add_numbers` was actually selected and executed.
+For V1, the inspector can also verify that `add_numbers` was selected and executed. For V2, set `AGENTCORE_GATEWAY_URL` to your deployed Gateway MCP endpoint before running locally, and verify the Gateway-backed tool is selected. Gateway and Lambda resources must already exist and the caller must be authorized.
 
 ---
 
@@ -293,6 +364,8 @@ Then replace `<YOUR_AWS_ACCOUNT_ID>` with the AWS account ID for the environment
 ---
 
 ## Deploying to AWS
+
+**V2 deployment note:** The Lambda function, Gateway, Gateway target, and their IAM roles/policies were configured separately for this exercise; the CDK stack shown here manages the existing AgentCore Runtime, its Gateway endpoint environment variable, and the Runtime execution-role Gateway permission. Deploying this stack alone does **not** provision the external Gateway or Lambda resources. Configure those prerequisites first, and replace the exercise-specific Gateway URL and resource ARNs for your own account.
 
 From the project root:
 
@@ -330,6 +403,32 @@ At this point the agent logic is executing in AWS rather than in the local devel
 
 ---
 
+## V2 — Verified End-to-End Deployment
+
+The existing HelloAgent Runtime was updated in place through AWS CDK and CloudFormation. Following deployment, the Runtime reported **version 2** with status **READY**. A remote `invoke-agent-runtime` request instructed the agent to use the calculator to add 173 and 289. The streamed response showed invocation of the Gateway MCP tool `HelloAgentV2-CalculatorTarget___add_numbers` and the final answer **462**.
+
+This validates the deployed path from user prompt through Strands, MCP, AgentCore Gateway, Lambda, and back to the user; it is more than a model-generated arithmetic answer.
+
+### Example runtime invocation
+
+Use your own Runtime ARN and a unique session identifier. With AWS CLI v2, `--cli-binary-format raw-in-base64-out` allows an inline JSON payload:
+
+```bash
+aws bedrock-agentcore invoke-agent-runtime \
+  --agent-runtime-arn "$AGENT_RUNTIME_ARN" \
+  --runtime-session-id "helloagent-v2-calculator-example-001" \
+  --payload '{"prompt":"Use the calculator tool to add 173 and 289. What is the result?"}' \
+  --cli-binary-format raw-in-base64-out \
+  --content-type application/json \
+  --accept application/json \
+  --region us-east-1 \
+  /tmp/helloagent-v2-response.json
+```
+
+The response file contains streamed events; inspect the tool-use event and the assembled text output to verify actual tool execution.
+
+---
+
 ## Skills Demonstrated
 
 | Area | Demonstrated Capability |
@@ -337,6 +436,10 @@ At this point the agent logic is executing in AWS rather than in the local devel
 | Agentic AI | Model-directed tool selection and execution |
 | Amazon Bedrock AgentCore | Agent deployment and managed runtime execution |
 | Strands Agents SDK | Agent orchestration and tool integration |
+| Model Context Protocol (MCP) | Tool discovery and remote tool invocation |
+| AgentCore Gateway | Managed interface for external tools |
+| AWS Lambda | Independently deployed deterministic calculator |
+| AWS SigV4 | Signed requests to Gateway |
 | Amazon Bedrock | Managed foundation-model inference |
 | Claude | Natural-language reasoning and tool selection |
 | Python | Agent logic and deterministic tool implementation |
@@ -404,11 +507,10 @@ This project therefore serves as a minimal reference implementation for understa
 
 ## What This Demo Intentionally Does Not Include
 
-To keep the architecture easy to understand, this version does not implement:
+To keep the architecture easy to understand, the current V2 implementation does not implement:
 
 - AgentCore Memory
-- AgentCore Gateway
-- MCP tool servers
+- A self-hosted MCP server (V2 uses managed AgentCore Gateway)
 - Retrieval-Augmented Generation (RAG)
 - Knowledge Bases
 - Multi-agent orchestration
@@ -457,7 +559,9 @@ A useful mental model for the project is:
 ```text
 Claude          = reasoning
 Strands         = agent orchestration
-Python tools    = capabilities
+Python tools    = in-process capabilities (V1)
+MCP + Gateway   = external tool access (V2)
+AWS Lambda      = separately deployed business logic (V2)
 Bedrock         = managed model access
 AgentCore       = managed agent runtime
 CDK             = infrastructure deployment
@@ -469,7 +573,7 @@ Together, these components demonstrate the basic foundation of a tool-using agen
 
 ## Next Evolution
 
-A logical next step is replacing the calculator with a tool that retrieves information the model cannot know independently.
+With V2's Gateway-mediated calculator validated, a logical next step is replacing or extending it with a tool that retrieves information the model cannot know independently.
 
 For example:
 
